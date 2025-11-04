@@ -1,0 +1,229 @@
+import hashlib
+import random
+import jwt
+import time
+import json
+import os
+import sys
+
+# Secret key for signing JWTs — keep this secret!
+SECRET_KEY = "super_secret_key_123"
+USERS_FILE = "users.json"
+
+# Temporary OTP storage
+active_otps = {}
+
+# -----------------------------
+# Password Input with Mask (*)
+# -----------------------------
+def get_password(prompt="Password: ", mask="*"):
+    """
+    Cross-platform password input with masking.
+    Works on Windows and Unix terminals.
+    """
+    if os.name == 'nt':  # Windows
+        import msvcrt
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+        buf = []
+        while True:
+            ch = msvcrt.getwch()
+            if ch in ('\r', '\n'):
+                sys.stdout.write("\n")
+                return "".join(buf)
+            elif ch == '\x03':  # Ctrl-C
+                raise KeyboardInterrupt
+            elif ch == '\x08':  # Backspace
+                if buf:
+                    buf.pop()
+                    sys.stdout.write("\b \b")
+                    sys.stdout.flush()
+            else:
+                buf.append(ch)
+                sys.stdout.write(mask)
+                sys.stdout.flush()
+    else:  # Unix (Linux/Mac)
+        import tty
+        import termios
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        buf = []
+        try:
+            tty.setraw(fd)
+            while True:
+                ch = sys.stdin.read(1)
+                if ch in ('\r', '\n'):
+                    sys.stdout.write("\n")
+                    return "".join(buf)
+                elif ch == '\x03':  # Ctrl-C
+                    raise KeyboardInterrupt
+                elif ch in ('\x7f', '\b'):  # Backspace
+                    if buf:
+                        buf.pop()
+                        sys.stdout.write("\b \b")
+                        sys.stdout.flush()
+                else:
+                    buf.append(ch)
+                    sys.stdout.write(mask)
+                    sys.stdout.flush()
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+# -----------------------------
+# Utility: Hash password
+# -----------------------------
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+# -----------------------------
+# Load users from file
+# -----------------------------
+def load_users():
+    if not os.path.exists(USERS_FILE):
+        return {}
+    with open(USERS_FILE, "r") as f:
+        return json.load(f)
+
+# -----------------------------
+# Save users to file
+# -----------------------------
+def save_users(users):
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=4)
+
+# -----------------------------
+# Upgrade old data format
+# -----------------------------
+def upgrade_user_format(users):
+    """Ensure every user has a dict with password + active_token"""
+    changed = False
+    for user, value in list(users.items()):
+        if isinstance(value, str):  # old format: just a hashed password
+            users[user] = {"password": value, "active_token": None}
+            changed = True
+    if changed:
+        save_users(users)
+    return users
+
+# -----------------------------
+# Register user
+# -----------------------------
+def register_user(username: str, password: str):
+    username = username.lower()
+    users = load_users()
+    users = upgrade_user_format(users)
+
+    if username in users:
+        return "⚠️ Username already exists!"
+    
+    users[username] = {
+        "password": hash_password(password),
+        "active_token": None
+    }
+    save_users(users)
+    return f"✅ User '{username}' registered successfully."
+
+# -----------------------------
+# Send OTP (valid for 20 seconds)
+# -----------------------------
+def send_otp(username: str):
+    username = username.lower()
+    users = load_users()
+    users = upgrade_user_format(users)
+
+    if username not in users:
+        return "❌ Username not registered!"
+
+    otp = random.randint(100000, 999999)
+    active_otps[username] = {"otp": otp, "time": time.time()}
+    print(f"📩 OTP for {username}: {otp} (simulated send)")
+    return "✅ OTP sent successfully. (Valid for 20 seconds)"
+
+# -----------------------------
+# Login: password + OTP (with expiry check)
+# -----------------------------
+def login(username: str, password: str, otp: int):
+    username = username.lower()
+    users = load_users()
+    users = upgrade_user_format(users)
+
+    if username not in users:
+        return "❌ Username not found!"
+
+    hashed = hash_password(password)
+    if users[username]["password"] != hashed:
+        return "❌ Incorrect password!"
+
+    otp_entry = active_otps.get(username)
+    if not otp_entry:
+        return "❌ No OTP found! Please request again."
+
+    # Check expiry (20 seconds)
+    if time.time() - otp_entry["time"] > 20:
+        del active_otps[username]
+        return "⌛ OTP expired! Please request a new one."
+
+    if otp_entry["otp"] != otp:
+        return "❌ Invalid OTP!"
+
+    # Create new JWT token (valid for 5 minutes)
+    payload = {
+        "user": username,
+        "iat": time.time(),
+        "exp": time.time() + 300
+    }
+    token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+
+    # Overwrite old token in database
+    users[username]["active_token"] = token
+    save_users(users)
+
+    del active_otps[username]
+    return f"✅ Login successful!\nNew token generated and saved.\n\n{token}"
+
+# -----------------------------
+# Verify JWT token
+# -----------------------------
+def verify_token(token: str):
+    try:
+        decoded = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        return f"✅ Token valid.\nPayload: {decoded}"
+    except jwt.ExpiredSignatureError:
+        return "❌ Token expired!"
+    except jwt.InvalidTokenError:
+        return "❌ Invalid token!"
+
+# -----------------------------
+# CLI Interaction
+# -----------------------------
+if __name__ == "__main__":
+    print("🔐 Welcome to SecureChat Auth System (2FA, 20s OTP, Single Active Token)\n")
+    print("1️⃣ Sign Up")
+    print("2️⃣ Log In (Password + OTP)")
+    print("3️⃣ Verify Token\n")
+
+    choice = input("Enter your choice (1 / 2 / 3): ").strip()
+
+    if choice == "1":
+        username = input("Enter a username: ")
+        password = get_password("Enter a password: ", mask="*")
+        print(register_user(username, password))
+
+    elif choice == "2":
+        username = input("Enter your username: ")
+        password = get_password("Enter your password: ", mask="*")
+        otp_result = send_otp(username)
+        print(otp_result)
+
+        if "✅" in otp_result:
+            otp = int(input("Enter the OTP you received: "))
+            print(login(username, password, otp))
+
+    elif choice == "3":
+        token = input("Paste your JWT token: ")
+        print(verify_token(token))
+
+    else:
+        print("❌ Invalid choice. Please run again.")
