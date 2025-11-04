@@ -1,5 +1,6 @@
 # Project-E
 run\
+`python -m venv .venv && .venv\Scripts\activate.bat`\
 `pip install -r .\requirement.txt` \
 `python server.py`\
 then you can run multiple instances of client code\
