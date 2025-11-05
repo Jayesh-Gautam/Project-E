@@ -1,0 +1,11 @@
+websockets>=11.0
+asyncqt
+PyQt6
+PyQt5
+passlib
+argon2-cffi
+pyotp
+qrcode
+pillow
+cryptography
+kyber-py
