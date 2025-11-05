@@ -16,7 +16,7 @@ def ints_to_bytes(v): return b"".join(x.to_bytes(2, "little") for x in v)
 def bytes_to_ints(b): return [int.from_bytes(b[i:i+2], "little") % Q for i in range(0, len(b), 2)]
 
 
-# ===== Lattice Key Encapsulation (Toy Version) =====
+# ===== Lattice Key Encapsulation=====
 def keypair():
     A, s = rand_mat(N), rand_vec(N)
     b = matvec(A, s)  # b = A*s
@@ -112,3 +112,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
