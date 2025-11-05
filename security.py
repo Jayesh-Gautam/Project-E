@@ -175,4 +175,3 @@ def decrypt_with_group_key(key: bytes, encrypted_str: str) -> str:
     except Exception as e:
         print(f"Group decryption error: {e}")
         return "[GROUP DECRYPTION FAILED]"
-
